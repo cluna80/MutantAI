@@ -22,7 +22,7 @@ MODELS = {
         "num_ctx": 8192,
         "description": "Code generation, debugging, architecture",
         "keywords": [
-            "write code", "create file", "write a function", "write a class",
+            "write code", "create file", "generate image", "generate an", "write a function", "write a class",
             "write a script", "implement this", "build an api", "build a server",
             "debug this", "fix this bug", "refactor", "fastapi", "flask",
             "react component", "javascript", "typescript", "npm install",
@@ -71,10 +71,10 @@ DEFAULT_MODEL = "mutant-coder"
 
 # These keywords trigger direct specialist bypass (skip agentic tool loop)
 FBDD_BYPASS_KEYWORDS = [
-    "smiles", "egfr", "hiv protease", "hiv integrase", "admet",
-    "docking score", "binding affinity", "vina score", "kcal/mol",
+    "smiles", "egfr", "admet",
+    "docking score", "vina score", "kcal/mol",
     "predict affinity", "analyze molecule", "pharmacophore",
-    "fragment growing", "lead optimization", "drug-like",
+    "fragment growing", "lead optimization",
 ]
 
 TRADER_BYPASS_KEYWORDS = [

@@ -374,10 +374,79 @@ def get_current_time(format: str = "%Y-%m-%d %H:%M:%S") -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+
+
+@tool
+def generate_image(prompt: str) -> str:
+    """
+    Generate an image from a text description using Stable Diffusion.
+    Input is a text prompt describing the image to generate.
+    Example: "3D molecular structure of EGFR inhibitor, dark background, scientific"
+    """
+    import requests, os, time
+    from pathlib import Path
+
+    token = os.environ.get("HF_TOKEN", "")
+    if not token:
+        return "Set HF_TOKEN environment variable to use image generation."
+
+    API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    print(f"[MutantAI] Generating image: {prompt[:50]}...")
+    try:
+        r = requests.post(API_URL, headers=headers, json={"inputs": prompt}, timeout=120)
+        if r.status_code == 200 and r.headers.get("content-type", "").startswith("image"):
+            output_dir = Path("generated_images")
+            output_dir.mkdir(exist_ok=True)
+            filename = f"generated_{int(time.time())}.png"
+            filepath = output_dir / filename
+            filepath.write_bytes(r.content)
+            return f"✅ Image generated: {filepath.resolve()}\nPrompt: {prompt}"
+        elif r.status_code == 503:
+            return "Model is loading, try again in 30 seconds."
+        else:
+            return f"Generation failed: {r.status_code} — {r.text[:200]}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@tool
+def generate_image(prompt: str) -> str:
+    """
+    Generate an image from a text description using FLUX.1.
+    Input is a descriptive prompt.
+    Examples:
+    - "3D molecular structure EGFR inhibitor dark background"
+    - "drug discovery dashboard glassmorphism dark UI"
+    - "NFL football field aerial view stadium"
+    """
+    import os, time
+    from pathlib import Path
+    from huggingface_hub import InferenceClient
+
+    token = os.environ.get("HF_TOKEN", "")
+    if not token:
+        return "Set HF_TOKEN to use image generation. Run: export HF_TOKEN=your_token"
+
+    try:
+        client = InferenceClient(token=token)
+        print(f"[MutantAI] Generating image: {prompt[:60]}...")
+        image = client.text_to_image(prompt, model="black-forest-labs/FLUX.1-schnell")
+        output_dir = Path("generated_images")
+        output_dir.mkdir(exist_ok=True)
+        filename = f"generated_{int(time.time())}.png"
+        filepath = output_dir / filename
+        image.save(str(filepath))
+        return f"✅ Image generated: {filepath.resolve()}\nPrompt: {prompt}\nOpen the file to view it!"
+    except Exception as e:
+        return f"Image generation error: {e}"
+
 CUSTOM_TOOLS = [
     scaffold_project,
     list_templates,
     learn_from_app,
     list_learned_templates,
     get_current_time,
+    generate_image,
 ]

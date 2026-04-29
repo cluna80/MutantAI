@@ -431,6 +431,14 @@ def run_agent(user_message: str, history: list[dict], max_steps: int = 5):
             yield "tool", f"📤 {observation}", True
             scratchpad += f"\n{tool_name}: {observation[:200]}\n"
 
+            # Auto-complete for generation tools
+            if tool_name == "generate_image" and "✅" in observation:
+                yield "assistant", "🎨 Image created! Prompt saved to generated_images folder.", False
+                return
+            if tool_name == "scaffold_project" and "✅" in observation:
+                yield "assistant", f"🏗️ Project scaffolded! Check the folder and run the app.", False
+                return
+
         step += 1
 
         if action_executed and files_created:
@@ -447,6 +455,7 @@ SYSTEM_PROMPT_AGENT_SHORT = """You are MutantAI-Coder, an expert coding assistan
 
 IMPORTANT TOOL ROUTING:
 - To scaffold/create/build an app → use scaffold_project
+- To generate/create/make an image → use generate_image
 - To list available templates → use list_templates  
 - To learn from a working app → use learn_from_app
 - To write a code file → use write_file
@@ -464,6 +473,10 @@ Action Input: all
 learn_from_app:
 Action: learn_from_app
 Action Input: path=./physicschemv2 name=drug-dashboard-v2
+
+generate_image:
+Action: generate_image
+Action Input: 3D molecular structure HIV protease inhibitor dark background scientific
 
 write_file:
 Action: write_file
