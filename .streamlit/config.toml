@@ -1,0 +1,11 @@
+[server]
+fileWatcherType = "none"
+
+[logger]
+level = "error"
+
+[runner]
+fixMatplotlib = false
+
+[browser]
+gatherUsageStats = false
