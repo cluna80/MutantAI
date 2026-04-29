@@ -12,3 +12,6 @@ data.csv
 data.txt
 test.txt
 files.zip
+.env
+generated_images/
+*.png
