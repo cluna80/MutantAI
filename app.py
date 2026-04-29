@@ -55,7 +55,12 @@ SIMPLE_GREETINGS = {
 
 # ── Sidebar ────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown('<p class="mutant-title">🧬 MUTANT</p>', unsafe_allow_html=True)
+    logo_path = "generated_images/generated_1777473810.png"
+    import os
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=120)
+    else:
+        st.markdown('<p class="mutant-title">🧬 MUTANT</p>', unsafe_allow_html=True)
     st.markdown('<p class="mutant-sub">// multi-model agent brain</p>', unsafe_allow_html=True)
     st.markdown("---")
 
