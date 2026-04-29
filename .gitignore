@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.env
+.mutant_memory.json
+mutant_ai_memory.json
+learned_templates.json
+testapp/
+mutantapp/
+mutantdrug/
+drugdashv3/
+data.csv
+data.txt
+test.txt
+files.zip
