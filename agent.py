@@ -306,6 +306,39 @@ def run_agent(user_message: str, history: list[dict], max_steps: int = 5):
     if _is_greeting(user_message):
         yield "assistant", SIMPLE_GREETINGS[user_message.lower().strip()], False
         return
+    # Vision bypass — /image prefix
+    if user_message.startswith("/image "):
+        parts = user_message.split("\n", 1)
+        image_path = parts[0].replace("/image ", "").strip()
+        prompt = parts[1].strip() if len(parts) > 1 else "Describe this image in detail."
+        try:
+            import requests, base64
+            from PIL import Image
+            import io
+            img = Image.open(image_path)
+            if max(img.size) > 1024:
+                img.thumbnail((1024, 1024))
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            img_b64 = base64.b64encode(buf.getvalue()).decode()
+            response = requests.post("http://localhost:11434/api/chat", json={
+                "model": "mutant-vision",
+                "messages": [{"role": "user", "content": prompt, "images": [img_b64]}],
+                "stream": False,
+            }, timeout=300)
+            resp_json = response.json()
+            if "message" in resp_json:
+                result = resp_json["message"]["content"]
+            elif "error" in resp_json:
+                result = f"Model error: {resp_json['error']}"
+            else:
+                result = str(resp_json)
+            yield "assistant", f"👁️ VISION · {result}", False
+        except Exception as e:
+            yield "assistant", f"Vision error: {e}", False
+        return
+
+
 
     # ── 2. Specialist bypass (FBDD / Trader) ──────────────────────────────────
     bypass_model = should_bypass_agent(user_message)
