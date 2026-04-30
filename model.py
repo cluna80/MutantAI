@@ -1,13 +1,7 @@
 """
-model.py — MutantAI Multi-Model Brain v2
+model.py — MutantAI Multi-Model Brain v3
 Routes to the right specialist based on task context.
-Models: mutant-coder | mutant-fbdd | mutant-vision | mutant-trader
-
-Key fixes in v2:
-- Tiebreaker: domain specialists beat coder
-- More specific coder keywords (no false matches on "build", "create")
-- More FBDD keywords including SMILES fragments
-- should_bypass_agent() for direct specialist routing
+Models: mutant-general | mutant-coder | mutant-fbdd | mutant-vision | mutant-trader
 """
 
 from langchain_ollama import OllamaLLM
@@ -15,6 +9,19 @@ import threading
 
 # ── Model Registry ────────────────────────────────────────────────────────────
 MODELS = {
+    "mutant-general": {
+        "model": "mutant-general",
+        "temperature": 0.7,
+        "num_predict": 1024,
+        "num_ctx": 4096,
+        "description": "General knowledge, questions, conversation",
+        "keywords": [
+            "who is", "what is", "when did", "where is", "why does",
+            "how does", "tell me about", "explain", "what are",
+            "president", "capital", "history", "science", "math",
+            "who was", "what was", "where was", "how many", "how much",
+        ],
+    },
     "mutant-coder": {
         "model": "mutant-coder",
         "temperature": 0.1,
@@ -22,11 +29,12 @@ MODELS = {
         "num_ctx": 8192,
         "description": "Code generation, debugging, architecture",
         "keywords": [
-            "write code", "create file", "generate image", "generate an", "write a function", "write a class",
-            "write a script", "implement this", "build an api", "build a server",
+            "write code", "create file", "generate image", "generate an",
+            "write a function", "write a class", "write a script",
+            "implement this", "build an api", "build a server",
             "debug this", "fix this bug", "refactor", "fastapi", "flask",
             "react component", "javascript", "typescript", "npm install",
-            "deploy", "docker", "github actions", "endpoint that",
+            "deploy", "docker", "endpoint that",
         ],
     },
     "mutant-fbdd": {
@@ -36,7 +44,7 @@ MODELS = {
         "num_ctx": 4096,
         "description": "Drug discovery, SMILES, docking, ADMET",
         "keywords": [
-            "smiles", "molecule", "docking", "egfr", "hiv", "admet",
+            "smiles", "molecule", "docking", "egfr", "admet",
             "binding affinity", "fragment", "scaffold", "vina", "kcal/mol",
             "pharmacophore", "lipinski", "chembl", "rdkit",
             "protease", "kinase", "inhibitor", "ligand", "receptor",
@@ -65,11 +73,11 @@ MODELS = {
     },
 }
 
-# Priority when tied — domain specialists beat coder
-ROUTING_PRIORITY = ["mutant-fbdd", "mutant-trader", "mutant-coder"]
-DEFAULT_MODEL = "mutant-coder"
+# Priority when tied — domain specialists beat general
+ROUTING_PRIORITY = ["mutant-fbdd", "mutant-trader", "mutant-coder", "mutant-general"]
+DEFAULT_MODEL = "mutant-general"
 
-# These keywords trigger direct specialist bypass (skip agentic tool loop)
+# Direct bypass keywords — skip agentic loop for these
 FBDD_BYPASS_KEYWORDS = [
     "smiles", "egfr", "admet",
     "docking score", "vina score", "kcal/mol",
@@ -154,7 +162,7 @@ def route_to_model(messages: list[dict]) -> str:
         print(f"[MutantAI] No keywords matched → {DEFAULT_MODEL}")
         return DEFAULT_MODEL
 
-    # Break ties using priority — fbdd > trader > coder
+    # Break ties using priority
     tied = [k for k, v in scores.items() if v == max_score]
     best = DEFAULT_MODEL
     for p in ROUTING_PRIORITY:
@@ -169,7 +177,6 @@ def should_bypass_agent(message: str) -> str | None:
     """
     Returns specialist model key if this message should skip the
     agentic tool loop and go directly to a specialist for reasoning.
-    Returns None if normal agentic processing should proceed.
     """
     msg_lower = message.lower()
 

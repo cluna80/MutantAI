@@ -340,6 +340,23 @@ def run_agent(user_message: str, history: list[dict], max_steps: int = 5):
 
 
 
+    # ── 1.5 General knowledge — use web search for current events ──────────
+    CURRENT_EVENTS_KEYWORDS = [
+        "who is the", "who is president", "current president",
+        "latest news", "what happened", "recently", "today",
+        "2024", "2025", "2026", "current", "right now",
+        "stock price", "weather", "score", "winner",
+    ]
+    if any(kw in user_message.lower() for kw in CURRENT_EVENTS_KEYWORDS):
+        print("[MutantAI] Current events → web search")
+        observation = _call_tool("web_search", user_message)
+        yield "tool", f"📤 {observation}", True
+        # Extract answer from search results directly
+        lines = [l.strip() for l in observation.split("\n") if l.strip() and not l.startswith("http")]
+        summary = " ".join(lines[:5])[:400]
+        yield "assistant", f"Based on web search: {summary}", False
+        return
+
     # ── 2. Specialist bypass (FBDD / Trader) ──────────────────────────────────
     bypass_model = should_bypass_agent(user_message)
     if bypass_model:
@@ -454,7 +471,8 @@ def run_agent(user_message: str, history: list[dict], max_steps: int = 5):
 SYSTEM_PROMPT_AGENT_SHORT = """You are MutantAI-Coder, an expert coding assistant and app builder.
 
 IMPORTANT TOOL ROUTING:
-- To scaffold/create/build an app → use scaffold_project
+- To scaffold/create/build a SPECIFIC named app → use scaffold_project
+- To LIST or DESCRIBE what apps can be built → answer directly without tools
 - To generate/create/make an image → use generate_image
 - To list available templates → use list_templates  
 - To learn from a working app → use learn_from_app

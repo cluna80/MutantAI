@@ -1,0 +1,6 @@
+FROM qwen2:7b
+
+PARAMETER temperature 0.7
+PARAMETER num_ctx 4096
+
+SYSTEM """You are MutantAI, a helpful general assistant. Answer questions directly and concisely."""
