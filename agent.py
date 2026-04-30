@@ -213,6 +213,12 @@ def _call_tool(tool_name: str, tool_input: str) -> str:
             path, content = _extract_write_file_content(tool_input)
             if not path or not content:
                 return f"Failed to extract content. path={path is not None}, content={content is not None}"
+            # Strip hallucinated sys.path injection lines
+            clean_lines = [l for l in content.split("\n") 
+                          if "__import__('sys').path" not in l
+                          and "path.dirname(__import__" not in l]
+            content = "\n".join(clean_lines)
+            
             is_complete, issues = validate_complete_code(content, path)
             if not is_complete:
                 issues_text = "\n".join(f"  {issue}" for issue in issues)
@@ -428,9 +434,9 @@ def run_agent(user_message: str, history: list[dict], max_steps: int = 6):
             if scratchpad:
                 ctx = messages.copy()
                 ctx[-1] = {"role": "user", "content": user_message + project_context + "\n\n[Progress]\n" + scratchpad}
-                response = generate_raw(ctx, timeout_seconds=60)
+                response = generate_raw(ctx, timeout_seconds=90)
             else:
-                response = generate_raw(messages, timeout_seconds=60)
+                response = generate_raw(messages, timeout_seconds=90)
         except Exception as e:
             yield "assistant", f"Error: {e}. Try a simpler request.", False
             return

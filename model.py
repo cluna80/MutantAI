@@ -74,7 +74,7 @@ MODELS = {
 
 # Priority when tied — domain specialists beat general
 ROUTING_PRIORITY = ["mutant-fbdd", "mutant-trader", "mutant-coder", "mutant-general"]
-DEFAULT_MODEL = "mutant-general"
+DEFAULT_MODEL = "mutant-coder"
 
 # Direct bypass keywords — skip agentic loop for these
 FBDD_BYPASS_KEYWORDS = [
