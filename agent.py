@@ -216,7 +216,8 @@ def _call_tool(tool_name: str, tool_input: str) -> str:
             # Strip hallucinated sys.path injection lines
             clean_lines = [l for l in content.split("\n") 
                           if "__import__('sys').path" not in l
-                          and "path.dirname(__import__" not in l]
+                          and "path.dirname(__import__" not in l
+                          and "__import__('requests')" not in l]
             content = "\n".join(clean_lines)
             
             is_complete, issues = validate_complete_code(content, path)
