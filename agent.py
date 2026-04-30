@@ -337,6 +337,39 @@ def run_agent(user_message: str, history: list[dict], max_steps: int = 6):
     6. Everything else → agentic tool loop
     """
 
+    # ── 0. Image generation — always fires first ──────────────────────────────
+    IMAGE_TRIGGERS = [
+        "create a image", "create an image", "create image of",
+        "generate image", "generate a image", "generate an image",
+        "make an image", "make a image", "draw a ", "draw an ",
+    ]
+    EDIT_TRIGGERS = ["edit image", "edit the image", "edit last image", "modify image", "change the image", "update the image"]
+    if any(t in user_message.lower() for t in EDIT_TRIGGERS):
+        from custom_tools import edit_image
+        prompt = user_message.lower()
+        for t in EDIT_TRIGGERS:
+            prompt = prompt.replace(t, "").strip()
+        observation = edit_image.invoke(f"latest prompt={prompt}")
+        yield "tool", f"📤 {observation}", True
+        if "✅" in observation:
+            yield "assistant", "🎨 Image edited!", False
+        else:
+            yield "assistant", observation, False
+        return
+    if any(t in user_message.lower() for t in IMAGE_TRIGGERS):
+        from custom_tools import generate_image
+        clean_prompt = user_message
+        for trigger in IMAGE_TRIGGERS:
+            clean_prompt = clean_prompt.lower().replace(trigger, "")
+        clean_prompt = clean_prompt.replace("nft", "NFT").strip()
+        observation = generate_image.invoke(clean_prompt)
+        yield "tool", f"📤 {observation}", True
+        if "✅" in observation:
+            yield "assistant", "🎨 Image created!", False
+        else:
+            yield "assistant", observation, False
+        return
+
     # ── 1. Greetings ──────────────────────────────────────────────────────────
     if user_message.lower().strip() == "run code":
         py_files = list(Path(".").glob("*.py"))

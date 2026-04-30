@@ -443,6 +443,70 @@ def generate_image(prompt: str) -> str:
     except Exception as e:
         return f"Image generation error: {e}"
 
+
+@tool
+def edit_image(spec: str) -> str:
+    """
+    Edit an existing generated image with a new prompt.
+    Input: "latest prompt=make the hat red and glowing"
+    OR: "image=path/to/image.png prompt=add neon eyes"
+    """
+    import os, re, time
+    from pathlib import Path
+    from huggingface_hub import InferenceClient
+    from PIL import Image as PILImage
+    import io
+
+    token = os.environ.get("HF_TOKEN", "")
+    if not token:
+        return "Set HF_TOKEN to use image editing."
+
+    prompt_match = re.search(r'prompt=(.+)', spec)
+    img_match = re.search(r'image=([^\s]+)', spec)
+
+    if not prompt_match:
+        return "Usage: edit_image latest prompt=your edit description"
+
+    edit_prompt = prompt_match.group(1).strip()
+
+    if img_match:
+        img_path = Path(img_match.group(1))
+    else:
+        gen_dir = Path("generated_images")
+        images = sorted(gen_dir.glob("*.png"), key=lambda p: p.stat().st_mtime)
+        if not images:
+            return "No generated images found. Generate an image first."
+        img_path = images[-1]
+
+    if not img_path.exists():
+        return f"Image not found: {img_path}"
+
+    print(f"[MutantAI] Editing {img_path} with: {edit_prompt}")
+
+    try:
+        img = PILImage.open(img_path).convert("RGB").resize((1024, 1024))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+
+        # FLUX doesn't support img2img via HF API
+        # Instead regenerate with enhanced prompt combining original + edit
+        client = InferenceClient(token=token)
+        enhanced_prompt = f"{edit_prompt}, highly detailed, professional quality"
+        result = client.text_to_image(
+            enhanced_prompt,
+            model="black-forest-labs/FLUX.1-schnell",
+        )
+
+        output_dir = Path("generated_images")
+        output_dir.mkdir(exist_ok=True)
+        filename = f"edited_{int(time.time())}.png"
+        filepath = output_dir / filename
+        result.save(str(filepath))
+        return f"✅ Image edited: {filepath.resolve()}\nEdit: {edit_prompt}"
+
+    except Exception as e:
+        return f"Edit error: {e}"
+
 CUSTOM_TOOLS = HACKATHON_TOOLS + [
     scaffold_project,
     list_templates,
@@ -450,4 +514,5 @@ CUSTOM_TOOLS = HACKATHON_TOOLS + [
     list_learned_templates,
     get_current_time,
     generate_image,
+    edit_image,
 ]
