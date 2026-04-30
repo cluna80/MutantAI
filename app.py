@@ -142,7 +142,14 @@ if "workflow_reminded" not in st.session_state:
     st.session_state.workflow_reminded = False
 
 # ── Header ─────────────────────────────────────────────────────────────────
-st.markdown('<h1 class="mutant-title">🧬 MUTANT AI</h1>', unsafe_allow_html=True)
+import os
+banner_path = "banner.png"
+if os.path.exists(banner_path):
+    st.markdown(f'''<div style="width:100%;height:200px;overflow:hidden;border-radius:8px;margin-bottom:10px;">
+    <img src="data:image/png;base64,{__import__("base64").b64encode(open(banner_path,"rb").read()).decode()}" 
+    style="width:100%;object-fit:cover;object-position:center 60%;"/>
+    </div>''', unsafe_allow_html=True)
+st.markdown('<h1 class="mutant-title">MUTANT AI</h1>', unsafe_allow_html=True)
 st.markdown('<p class="mutant-sub">// mutant-coder · mutant-fbdd · mutant-vision · mutant-trader · 15 Tools · Memory · Local</p>', unsafe_allow_html=True)
 st.markdown("---")
 
