@@ -18,3 +18,4 @@ generated_images/
 .env
 generated_images/
 *.png
+*.gguf
