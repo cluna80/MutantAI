@@ -53,7 +53,6 @@ MODELS = {
             "logp", "hbd", "hba", "qed", "tpsa", "ro5",
             "covalent", "atp binding", "active site",
             "lead optimization", "bioisostere", "scaffold hop",
-            "ccoc", "ncnc", "c1cc", "c2cc",
             "drug discovery", "medicinal chemistry",
         ],
     },

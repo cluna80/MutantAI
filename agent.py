@@ -1,7 +1,10 @@
 """
-agent.py — MutantAI Agent v2
-Adds specialist bypass: FBDD and trader queries skip the tool loop
-and go directly to the domain expert for pure reasoning.
+agent.py — MutantAI Agent v3
+Upgrades:
+- Run-and-fix loop: writes code → runs it → fixes errors → retries up to 3x
+- Auto project scan before modification tasks
+- Web search for current events
+- Vision bypass with auto image resize
 """
 
 import json
@@ -14,15 +17,13 @@ from memory import remember_decision, remember_error
 
 TOOL_NAMES = ", ".join(TOOLS_BY_NAME.keys())
 
-# ── Specialist system prompts for bypass mode ─────────────────────────────────
 SPECIALIST_PROMPTS = {
-    "mutant-fbdd": """You are MutantAI-FBDD, an expert computational medicinal chemist specializing in FBDD.
+    "mutant-fbdd": """You are MutantAI-FBDD, an expert computational medicinal chemist fine-tuned on real drug discovery campaigns.
 Analyze molecules step by step: properties → pharmacophore → affinity prediction → ADMET → recommendations.
 Key knowledge: EGFR top leads -10.08 kcal/mol, HIV Integrase -9.708 kcal/mol, HIV Protease CURE_17G_002 -7.753 kcal/mol.
 Give direct scientific reasoning. Do NOT write code.""",
     "mutant-trader": """You are MutantAI-Trader, an expert in sports betting and financial markets.
-Your expertise: NFL analysis, horse racing, DraftKings fantasy, Kelly criterion,
-crypto/DeFi analysis, XRPL, value identification, bankroll management.
+Your expertise: NFL analysis, horse racing, DraftKings fantasy, Kelly criterion, crypto/DeFi analysis.
 Give direct analysis and actionable recommendations.
 Always include: edge identification, risk quantification, position sizing, exit criteria.
 Be honest about uncertainty. Never chase losses.""",
@@ -30,7 +31,6 @@ Be honest about uncertainty. Never chase losses.""",
 
 
 def _parse_response(text: str):
-    """Parse model response - handles Action/Action Input pairs."""
     final_match = re.search(r"Final Answer\s*:\s*(.+)", text, re.DOTALL | re.IGNORECASE)
     if final_match:
         return [("final", None, final_match.group(1).strip())]
@@ -46,16 +46,13 @@ def _parse_response(text: str):
     for match in matches:
         tool_name = match[0].strip()
         tool_input = match[1].strip()
-
         if tool_input.startswith('"') and tool_input.endswith('"'):
             tool_input = tool_input[1:-1]
         if tool_input.startswith("'") and tool_input.endswith("'"):
             tool_input = tool_input[1:-1]
-
         tool_input = re.sub(r"^```json\s*", "", tool_input)
         tool_input = re.sub(r"^```\s*", "", tool_input)
         tool_input = re.sub(r"```$", "", tool_input)
-
         actions.append(("action", tool_name, tool_input))
 
     return actions if actions else [("incomplete", None, text.strip())]
@@ -81,12 +78,10 @@ def validate_complete_code(content: str, filename: str) -> tuple[bool, list[str]
     if not content or len(content.strip()) < 50:
         issues.append(f"File too short ({len(content)} chars)")
         return False, issues
-
     hard_placeholders = ['# Your code here', '# TODO', '# FIXME', 'placeholder', 'implement this']
     for placeholder in hard_placeholders:
         if placeholder.lower() in content.lower():
             issues.append(f"Contains placeholder: '{placeholder}'")
-
     empty_patterns = [
         r'def \w+\([^)]*\):\s*\n\s*pass\s*\n',
         r'def \w+\([^)]*\):\s*\n\s*\.\.\.\s*\n',
@@ -96,7 +91,6 @@ def validate_complete_code(content: str, filename: str) -> tuple[bool, list[str]
         if re.search(pattern, content, re.MULTILINE):
             issues.append("Contains empty function or class body")
             break
-
     return len(issues) == 0, issues
 
 
@@ -111,7 +105,6 @@ def _extract_write_file_content(tool_input: str) -> tuple[str | None, str | None
             path = parsed.get("path")
             content = parsed.get("content")
             if path and content:
-                print(f"[DEBUG] Strategy 1 succeeded: {len(content)} chars")
                 return path, content
     except Exception:
         pass
@@ -151,7 +144,6 @@ def _extract_write_file_content(tool_input: str) -> tuple[str | None, str | None
                     path = parsed.get("path")
                     content = parsed.get("content")
                     if path and content:
-                        print(f"[DEBUG] Strategy 2 succeeded: {len(content)} chars")
                         return path, content
     except Exception as e:
         print(f"[DEBUG] Strategy 2 failed: {e}")
@@ -167,7 +159,6 @@ def _extract_write_file_content(tool_input: str) -> tuple[str | None, str | None
         raw = content_match.group(1)
         content = raw.replace('\\"', '"').replace('\\n', '\n').replace('\\t', '\t').replace('\\\\', '\\')
         if content and len(content) > 20:
-            print(f"[DEBUG] Strategy 3a succeeded: {len(content)} chars")
             return path, content
 
     content_match = re.search(r'"content"\s*:\s*"(.+?)"(?:\s*\}|\s*$)', tool_input, re.DOTALL)
@@ -175,7 +166,6 @@ def _extract_write_file_content(tool_input: str) -> tuple[str | None, str | None
         content = content_match.group(1)
         content = content.replace('\\"', '"').replace('\\n', '\n').replace('\\t', '\t')
         if content and len(content) > 20:
-            print(f"[DEBUG] Strategy 3b succeeded: {len(content)} chars")
             return path, content
 
     try:
@@ -191,10 +181,9 @@ def _extract_write_file_content(tool_input: str) -> tuple[str | None, str | None
                     raw = sub[:q2]
                     content = raw.replace('\\"', '"').replace('\\n', '\n').replace('\\t', '\t').replace('\\\\', '\\')
                     if content and len(content) > 20:
-                        print(f"[DEBUG] Strategy 3c succeeded: {len(content)} chars")
                         return path, content
-    except Exception as e:
-        print(f"[DEBUG] Strategy 3c failed: {e}")
+    except Exception:
+        pass
 
     code_match = re.search(r'```python\n(.*?)```', tool_input, re.DOTALL)
     if not code_match:
@@ -203,20 +192,16 @@ def _extract_write_file_content(tool_input: str) -> tuple[str | None, str | None
         content = code_match.group(1).strip()
         if not path:
             path = "script.py"
-        print(f"[DEBUG] Strategy 4 succeeded: {len(content)} chars")
         return path, content
 
-    print(f"[DEBUG] All strategies failed. path={path}, content={len(content) if content else 0}")
     return path, content
 
 
 def _call_tool(tool_name: str, tool_input: str) -> str:
     if tool_name not in TOOLS_BY_NAME:
         return f"Unknown tool '{tool_name}'. Available: {TOOL_NAMES}"
-
     try:
         t = TOOLS_BY_NAME[tool_name]
-
         fixed_input = _fix_nested_json(tool_input)
         if fixed_input:
             try:
@@ -227,16 +212,11 @@ def _call_tool(tool_name: str, tool_input: str) -> str:
         if tool_name == "write_file":
             path, content = _extract_write_file_content(tool_input)
             if not path or not content:
-                return (
-                    f"❌ Failed to extract content.\n"
-                    f"  path found: {path is not None}\n"
-                    f"  content found: {content is not None}\n"
-                    f"  raw length: {len(tool_input)}"
-                )
+                return f"Failed to extract content. path={path is not None}, content={content is not None}"
             is_complete, issues = validate_complete_code(content, path)
             if not is_complete:
-                issues_text = "\n".join(f"  ⚠️ {issue}" for issue in issues)
-                return f"❌ REJECTED - Code incomplete!\n{issues_text}\n\nPlease write COMPLETE, runnable code."
+                issues_text = "\n".join(f"  {issue}" for issue in issues)
+                return f"REJECTED - Code incomplete!\n{issues_text}\n\nWrite COMPLETE, runnable code."
             result = t.invoke({"path": path, "content": content})
             return f"{result}\n✅ Code validated: {len(content)} characters"
 
@@ -248,9 +228,54 @@ def _call_tool(tool_name: str, tool_input: str) -> str:
             pass
 
         return str(t.invoke(tool_input))
-
     except Exception as e:
         return f"Tool error: {e}"
+
+
+def _run_file(filepath: str) -> tuple[bool, str]:
+    """Run a Python file. Returns (success, output)."""
+    import subprocess, sys
+    try:
+        r = subprocess.run(
+            [sys.executable, filepath],
+            capture_output=True, text=True, timeout=30
+        )
+        if r.returncode == 0:
+            return True, r.stdout.strip() or "Ran successfully."
+        else:
+            return False, r.stderr.strip() or r.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return False, "Timeout after 30s."
+    except Exception as e:
+        return False, str(e)
+
+
+def _fix_code(filepath: str, error: str, original_request: str) -> str | None:
+    """Ask mutant-coder to fix a broken file."""
+    try:
+        current_code = Path(filepath).read_text(encoding="utf-8")
+    except Exception:
+        return None
+
+    fix_prompt = f"""Fix this Python code. It has an error.
+
+ORIGINAL REQUEST: {original_request}
+
+CURRENT CODE:
+```python
+{current_code[:2000]}
+```
+
+ERROR:
+{error[:500]}
+
+Write the COMPLETE fixed file using write_file with path: {filepath}"""
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT_AGENT_SHORT},
+        {"role": "user", "content": fix_prompt},
+    ]
+    return generate_raw(messages, timeout_seconds=60, force_model="mutant-coder")
 
 
 def verify_file_created(filepath: str) -> bool:
@@ -270,9 +295,9 @@ def extract_filepath_from_input(value: str) -> str:
 
 
 SIMPLE_GREETINGS = {
-    "hi": "Hey! I'm MutantAI 🧬 — multi-model agent brain. I can analyze molecules, write code, analyze markets, and see images. What do you need?",
-    "hello": "Hello! MutantAI ready. I route your request to the right specialist — FBDD, Coder, Trader, or Vision. What should we work on?",
-    "hey": "Hey! Give me a task — drug discovery, coding, betting analysis, or show me an image 🧬",
+    "hi": "Hey! I'm MutantAI 🧬 — 5 specialist models, 16 tools, image gen, self-fixing code loop. What should we build?",
+    "hello": "Hello! MutantAI ready. I write code, fix my own errors, analyze molecules, generate images, search the web. What's the task?",
+    "hey": "Hey! Drug discovery, app building, market analysis, image generation — what do you need? 🧬",
     "run code": "I'll test the latest Python file.",
     "test": "I'll test the code.",
 }
@@ -280,15 +305,30 @@ SIMPLE_GREETINGS = {
 def _is_greeting(msg: str) -> bool:
     return msg.lower().strip() in SIMPLE_GREETINGS
 
+CURRENT_EVENTS_KEYWORDS = [
+    "who is the", "who is president", "current president",
+    "latest news", "what happened", "recently", "today",
+    "2025", "2026", "current", "right now",
+    "stock price", "weather in", "game score", "who won",
+]
 
-def run_agent(user_message: str, history: list[dict], max_steps: int = 5):
+CODING_TASK_KEYWORDS = [
+    "add feature", "add a", "modify", "update", "fix the bug",
+    "improve", "extend", "integrate", "connect", "wire up",
+    "refactor", "edit", "change the", "in my project",
+]
+
+
+def run_agent(user_message: str, history: list[dict], max_steps: int = 6):
     """
     Yields (role, content, is_tool_step).
-    
     Flow:
-    1. Greetings → instant response
-    2. FBDD/Trader queries → specialist bypass (direct reasoning, no tools)
-    3. Everything else → full agentic tool loop with mutant-coder
+    1. Greetings → instant
+    2. Current events → web search
+    3. Vision → /image bypass
+    4. FBDD/Trader → specialist bypass
+    5. Coding tasks → auto scan + write + run + fix loop (up to 3 fix attempts)
+    6. Everything else → agentic tool loop
     """
 
     # ── 1. Greetings ──────────────────────────────────────────────────────────
@@ -306,16 +346,28 @@ def run_agent(user_message: str, history: list[dict], max_steps: int = 5):
     if _is_greeting(user_message):
         yield "assistant", SIMPLE_GREETINGS[user_message.lower().strip()], False
         return
-    # Vision bypass — /image prefix
+
+    # ── 2. Current events → web search ────────────────────────────────────────
+    if any(kw in user_message.lower() for kw in CURRENT_EVENTS_KEYWORDS):
+        print("[MutantAI] Current events → web search")
+        observation = _call_tool("web_search", user_message)
+        yield "tool", f"📤 {observation}", True
+        lines = [l.strip() for l in observation.split("\n")
+                 if l.strip() and not l.startswith("http") and not l.startswith("__")]
+        summary = " ".join(lines[:6])[:500]
+        yield "assistant", f"🌐 {summary}", False
+        return
+
+    # ── 3. Vision bypass ──────────────────────────────────────────────────────
     if user_message.startswith("/image "):
         parts = user_message.split("\n", 1)
         image_path = parts[0].replace("/image ", "").strip()
         prompt = parts[1].strip() if len(parts) > 1 else "Describe this image in detail."
         try:
             import requests, base64
-            from PIL import Image
+            from PIL import Image as PILImage
             import io
-            img = Image.open(image_path)
+            img = PILImage.open(image_path)
             if max(img.size) > 1024:
                 img.thumbnail((1024, 1024))
             buf = io.BytesIO()
@@ -327,65 +379,46 @@ def run_agent(user_message: str, history: list[dict], max_steps: int = 5):
                 "stream": False,
             }, timeout=300)
             resp_json = response.json()
-            if "message" in resp_json:
-                result = resp_json["message"]["content"]
-            elif "error" in resp_json:
-                result = f"Model error: {resp_json['error']}"
-            else:
-                result = str(resp_json)
+            result = resp_json.get("message", {}).get("content", str(resp_json))
             yield "assistant", f"👁️ VISION · {result}", False
         except Exception as e:
             yield "assistant", f"Vision error: {e}", False
         return
 
-
-
-    # ── 1.5 General knowledge — use web search for current events ──────────
-    CURRENT_EVENTS_KEYWORDS = [
-        "who is the", "who is president", "current president",
-        "latest news", "what happened", "recently", "today",
-        "2024", "2025", "2026", "current", "right now",
-        "stock price", "weather", "score", "winner",
-    ]
-    if any(kw in user_message.lower() for kw in CURRENT_EVENTS_KEYWORDS):
-        print("[MutantAI] Current events → web search")
-        observation = _call_tool("web_search", user_message)
-        yield "tool", f"📤 {observation}", True
-        # Extract answer from search results directly
-        lines = [l.strip() for l in observation.split("\n") if l.strip() and not l.startswith("http")]
-        summary = " ".join(lines[:5])[:400]
-        yield "assistant", f"Based on web search: {summary}", False
-        return
-
-    # ── 2. Specialist bypass (FBDD / Trader) ──────────────────────────────────
+    # ── 4. Specialist bypass (FBDD / Trader) ──────────────────────────────────
     bypass_model = should_bypass_agent(user_message)
     if bypass_model:
         print(f"[MutantAI] Specialist bypass → {bypass_model}")
-        system_prompt = SPECIALIST_PROMPTS.get(bypass_model, "You are a helpful expert assistant.")
-        messages = [
-            {"role": "system", "content": system_prompt},
-        ]
-        # Include recent history for context
+        system_prompt = SPECIALIST_PROMPTS.get(bypass_model, "You are a helpful expert.")
+        messages = [{"role": "system", "content": system_prompt}]
         messages += history[-4:]
         messages.append({"role": "user", "content": user_message})
-
         try:
             response = generate_raw(messages, timeout_seconds=120, force_model=bypass_model)
-            model_label = "🧬 FBDD" if bypass_model == "mutant-fbdd" else "📈 TRADER"
-            yield "assistant", f"{model_label} · {response}", False
+            label = "🧬 FBDD" if bypass_model == "mutant-fbdd" else "📈 TRADER"
+            yield "assistant", f"{label} · {response}", False
         except Exception as e:
             yield "assistant", f"Specialist error: {e}", False
         return
 
-    # ── 3. Full agentic tool loop (mutant-coder) ──────────────────────────────
+    # ── 5. Auto project scan for modification tasks ────────────────────────────
+    needs_scan = any(kw in user_message.lower() for kw in CODING_TASK_KEYWORDS)
+    project_context = ""
+    if needs_scan:
+        print("[MutantAI] Auto-scanning project...")
+        yield "assistant", "🗂️ Scanning project for context...", True
+        scan_result = _call_tool("scan_project", ".")
+        project_context = f"\n\nPROJECT CONTEXT:\n{scan_result[:2000]}"
+        yield "tool", f"📤 Project scanned — context loaded", True
+
+    # ── 6. Agentic tool loop with run-and-fix ─────────────────────────────────
     messages = [{"role": "system", "content": SYSTEM_PROMPT_AGENT_SHORT}]
     messages += history[-4:]
-    messages.append({"role": "user", "content": user_message})
+    messages.append({"role": "user", "content": user_message + project_context})
 
     scratchpad = ""
     files_created = set()
     completed_actions = set()
-    rejected_files = set()
     step = 0
 
     while step < max_steps:
@@ -394,12 +427,12 @@ def run_agent(user_message: str, history: list[dict], max_steps: int = 5):
         try:
             if scratchpad:
                 ctx = messages.copy()
-                ctx[-1] = {"role": "user", "content": user_message + "\n\n[Progress]\n" + scratchpad}
-                response = generate_raw(ctx, timeout_seconds=45)
+                ctx[-1] = {"role": "user", "content": user_message + project_context + "\n\n[Progress]\n" + scratchpad}
+                response = generate_raw(ctx, timeout_seconds=60)
             else:
-                response = generate_raw(messages, timeout_seconds=45)
+                response = generate_raw(messages, timeout_seconds=60)
         except Exception as e:
-            yield "assistant", f"Error: {e}. Please try a simpler request.", False
+            yield "assistant", f"Error: {e}. Try a simpler request.", False
             return
 
         print(f"[DEBUG] Response length: {len(response)}")
@@ -418,7 +451,7 @@ def run_agent(user_message: str, history: list[dict], max_steps: int = 5):
             if len(response) > 20 and step == 0:
                 yield "assistant", response, False
             else:
-                yield "assistant", "Please specify what you'd like me to create.", False
+                yield "assistant", "Task completed.", False
             return
 
         action_executed = False
@@ -427,33 +460,81 @@ def run_agent(user_message: str, history: list[dict], max_steps: int = 5):
             if action_key in completed_actions:
                 continue
 
-            if tool_name == "write_file":
-                filepath = extract_filepath_from_input(value)
-                if filepath and filepath in rejected_files:
-                    yield "tool", f"⏭️ File {filepath} was rejected.", True
-                    continue
-
             yield "assistant", f"🔨 {tool_name}", True
             observation = _call_tool(tool_name, value)
 
+            # ── Run-and-fix loop ───────────────────────────────────────────
             if tool_name == "write_file" and "REJECTED" not in observation and "Failed" not in observation:
                 filepath = extract_filepath_from_input(value)
                 if filepath and verify_file_created(filepath):
                     files_created.add(filepath)
                     size = Path(filepath).stat().st_size
-                    observation += f"\n✅ File verified: {filepath} ({size} bytes)"
+                    observation += f"\n✅ Verified: {filepath} ({size} bytes)"
+                    yield "tool", f"📤 {observation}", True
+
+                    # Only auto-run pure Python scripts, not Streamlit/Flask apps
+                    is_runnable = (filepath.endswith(".py") and
+                                   not any(skip in filepath for skip in
+                                           ["app.py", "streamlit", "flask", "fastapi"]))
+
+                    if is_runnable:
+                        yield "assistant", f"▶️ Testing {filepath}...", True
+                        success, run_output = _run_file(filepath)
+
+                        if success:
+                            yield "tool", f"📤 ✅ Runs correctly:\n{run_output[:300]}", True
+                            yield "assistant", f"✅ `{filepath}` works!\n```\n{run_output[:200]}\n```", False
+                            return
+                        else:
+                            yield "tool", f"📤 ❌ Error:\n{run_output[:300]}", True
+
+                            fixed = False
+                            for attempt in range(1, 4):
+                                yield "assistant", f"🔧 Auto-fixing (attempt {attempt}/3)...", True
+                                fix_response = _fix_code(filepath, run_output, user_message)
+
+                                if fix_response:
+                                    fix_actions = [p for p in _parse_response(fix_response) if p[0] == "action"]
+                                    for _, ft, fv in fix_actions:
+                                        if ft == "write_file":
+                                            fix_obs = _call_tool("write_file", fv)
+                                            yield "tool", f"📤 {fix_obs}", True
+                                            success, run_output = _run_file(filepath)
+                                            if success:
+                                                yield "tool", f"📤 ✅ Fixed!\n{run_output[:200]}", True
+                                                yield "assistant", f"✅ Fixed after {attempt} attempt(s)!\n```\n{run_output[:150]}\n```", False
+                                                fixed = True
+                                                break
+                                            else:
+                                                yield "tool", f"📤 ❌ Attempt {attempt} failed:\n{run_output[:150]}", True
+                                if fixed:
+                                    return
+
+                            if not fixed:
+                                yield "assistant", f"⚠️ Could not auto-fix after 3 attempts.\nLast error:\n```\n{run_output[:300]}\n```", False
+                                return
+                    else:
+                        yield "assistant", f"✅ Created `{filepath}`", False
+                        return
+
+                    completed_actions.add(action_key)
+                    action_executed = True
+                    scratchpad += f"\n{tool_name}: {observation[:200]}\n"
+                    continue
 
             completed_actions.add(action_key)
             action_executed = True
             yield "tool", f"📤 {observation}", True
             scratchpad += f"\n{tool_name}: {observation[:200]}\n"
 
-            # Auto-complete for generation tools
             if tool_name == "generate_image" and "✅" in observation:
-                yield "assistant", "🎨 Image created! Prompt saved to generated_images folder.", False
+                yield "assistant", "🎨 Image created!", False
                 return
             if tool_name == "scaffold_project" and "✅" in observation:
-                yield "assistant", f"🏗️ Project scaffolded! Check the folder and run the app.", False
+                yield "assistant", "🏗️ Project scaffolded! Check the folder and run the app.", False
+                return
+            if tool_name == "learn_from_app" and "✅" in observation:
+                yield "assistant", "🎓 Template learned! Use it with scaffold_project.", False
                 return
 
         step += 1
@@ -468,40 +549,38 @@ def run_agent(user_message: str, history: list[dict], max_steps: int = 5):
         yield "assistant", "Task completed.", False
 
 
-SYSTEM_PROMPT_AGENT_SHORT = """You are MutantAI-Coder, an expert coding assistant and app builder.
+SYSTEM_PROMPT_AGENT_SHORT = """You are MutantAI-Coder, an expert coding assistant that writes COMPLETE, runnable code.
 
 IMPORTANT TOOL ROUTING:
 - To scaffold/create/build a SPECIFIC named app → use scaffold_project
-- To LIST or DESCRIBE what apps can be built → answer directly without tools
 - To generate/create/make an image → use generate_image
-- To list available templates → use list_templates  
+- To DESCRIBE or LIST what apps can be built → answer directly without tools
+- To list templates → use list_templates
 - To learn from a working app → use learn_from_app
 - To write a code file → use write_file
 
-TOOL FORMAT — Action Input is always a plain STRING, never JSON:
+TOOL FORMAT:
 
 scaffold_project:
 Action: scaffold_project
-Action Input: name=MutantDrug template=streamlit-drug
+Action Input: name=MyApp template=streamlit-drug
 
-list_templates:
-Action: list_templates
-Action Input: all
+generate_image:
+Action: generate_image
+Action Input: 3D molecular structure dark background scientific
 
 learn_from_app:
 Action: learn_from_app
 Action Input: path=./physicschemv2 name=drug-dashboard-v2
 
-generate_image:
-Action: generate_image
-Action Input: 3D molecular structure HIV protease inhibitor dark background scientific
-
 write_file:
 Action: write_file
-Action Input: {"path": "app.py", "content": "import streamlit as st\\nst.title('Hello')\\n"}
+Action Input: {"path": "script.py", "content": "import os\\nprint('hello')\\n"}
 
-CRITICAL RULES for write_file only:
+CRITICAL RULES for write_file:
 - Action Input must be valid JSON on ONE LINE
 - Use \\n for newlines inside content string
-- Never use placeholders like # TODO
+- Never truncate or use placeholders like # TODO
+- Always include if __name__ == '__main__' block
+- Write COMPLETE, immediately runnable code
 """
