@@ -29,7 +29,7 @@ MODELS = {
         "num_ctx": 8192,
         "description": "Code generation, debugging, architecture",
         "keywords": [
-            "write code", "create file", "generate image", "generate an",
+            "write code", "create file", "generate image", "generate an", "create a image", "create an image", "create image",
             "write a function", "write a class", "write a script",
             "implement this", "build an api", "build a server",
             "debug this", "fix this bug", "refactor", "fastapi", "flask",

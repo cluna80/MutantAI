@@ -7,6 +7,7 @@ Uses APP_NAME placeholder instead of .format() to avoid brace conflicts.
 from langchain_core.tools import tool
 from pathlib import Path
 import json
+from hackathon_tools import HACKATHON_TOOLS
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEMPLATES
@@ -442,7 +443,7 @@ def generate_image(prompt: str) -> str:
     except Exception as e:
         return f"Image generation error: {e}"
 
-CUSTOM_TOOLS = [
+CUSTOM_TOOLS = HACKATHON_TOOLS + [
     scaffold_project,
     list_templates,
     learn_from_app,

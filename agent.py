@@ -314,8 +314,7 @@ def _is_greeting(msg: str) -> bool:
 
 CURRENT_EVENTS_KEYWORDS = [
     "who is the", "who is president", "current president",
-    "latest news", "what happened", "recently", "today",
-    "2025", "2026", "current", "right now",
+    "latest news", "what happened",
     "stock price", "weather in", "game score", "who won",
 ]
 
@@ -364,6 +363,20 @@ def run_agent(user_message: str, history: list[dict], max_steps: int = 6):
         summary = " ".join(lines[:6])[:500]
         yield "assistant", f"🌐 {summary}", False
         return
+
+    # ── 2.5 Hackathon tool bypass ─────────────────────────────────────────────
+    hack_cmds = {
+        "analyze_hackathon": "analyze_hackathon",
+        "show_hackathons": "show_hackathons", 
+        "create_hackathon_submission": "create_hackathon_submission",
+    }
+    for cmd, tool_name in hack_cmds.items():
+        if user_message.lower().startswith(cmd):
+            tool_input = user_message[len(cmd):].strip().lstrip("-: ")
+            observation = _call_tool(tool_name, tool_input or "")
+            yield "tool", f"📤 {observation}", True
+            yield "assistant", "✅ Done!", False
+            return
 
     # ── 3. Vision bypass ──────────────────────────────────────────────────────
     if user_message.startswith("/image "):
@@ -564,6 +577,9 @@ IMPORTANT TOOL ROUTING:
 - To DESCRIBE or LIST what apps can be built → answer directly without tools
 - To list templates → use list_templates
 - To learn from a working app → use learn_from_app
+- To analyze a hackathon brief → use analyze_hackathon
+- To show saved hackathons → use show_hackathons
+- To create submission → use create_hackathon_submission
 - To write a code file → use write_file
 
 TOOL FORMAT:
@@ -579,6 +595,10 @@ Action Input: 3D molecular structure dark background scientific
 learn_from_app:
 Action: learn_from_app
 Action Input: path=./physicschemv2 name=drug-dashboard-v2
+
+analyze_hackathon:
+Action: analyze_hackathon
+Action Input: [paste full hackathon brief here]
 
 write_file:
 Action: write_file

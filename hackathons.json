@@ -1,0 +1,20 @@
+{
+  "hack_1": {
+    "brief_preview": "Monday, May 4 2026 - AMD Developer Hackathon...",
+    "deadline": "May 4 2026",
+    "prize": "Unknown",
+    "tracks": [],
+    "tech_stack": [],
+    "saved_at": "2026-04-29T19:15:26.166327",
+    "status": "submission_ready"
+  },
+  "hack_2": {
+    "brief_preview": "[paste full hackathon brief here]",
+    "deadline": "Unknown",
+    "prize": "Unknown",
+    "tracks": [],
+    "tech_stack": [],
+    "saved_at": "2026-04-29T19:16:50.155408",
+    "status": "analyzing"
+  }
+}
